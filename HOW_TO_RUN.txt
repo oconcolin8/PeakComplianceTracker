@@ -1,0 +1,49 @@
+HOW TO RUN PEAK COMPLIANCE TRACKER
+====================================
+
+REQUIREMENTS
+------------
+- Node.js installed (https://nodejs.org)
+- Internet connection (connects to Supabase cloud database)
+
+
+EVERY TIME YOU WANT TO RUN THE APP
+------------------------------------
+1. Open a terminal in the project folder:
+   C:\Users\colin\Documents\PeakComplianceTracker
+
+2. Run this command:
+   npm run dev
+
+3. Open your browser and go to:
+   http://localhost:5173
+
+4. Log in with your admin email and password.
+
+5. When done, press Ctrl+C in the terminal to stop the server.
+
+
+IF YOU REINSTALL NODE OR GET MODULE ERRORS
+-------------------------------------------
+Run this once to reinstall dependencies:
+   npm run install:all
+
+Then run normally with:
+   npm run dev
+
+
+IMPORTANT FILES (do not delete or share)
+-----------------------------------------
+- server/.env        <- contains your secret Supabase keys
+- client/.env        <- contains your Supabase URL and public key
+
+These files are not backed up to git. If lost, recreate them
+using server/.env.example and client/.env.example as templates
+and fill in your keys from supabase.com (Settings -> API).
+
+
+YOUR DATA
+----------
+All data is stored in the cloud on Supabase — not on this computer.
+You can access the app from any device by running npm run dev
+or by deploying it (see README.md for deployment instructions).
