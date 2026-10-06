@@ -9,7 +9,7 @@ const ctrl = require('../controllers/documentTypesController');
 const dtValidation = [
   body('name').trim().notEmpty().withMessage('Name is required'),
   body('description').optional({ nullable: true, checkFalsy: true }).trim(),
-  body('warning_days').optional().isInt({ min: 1, max: 365 }),
+  body('tracking_type').optional().isIn(['expiration', 'present_absent']),
   body('is_required').optional().isBoolean(),
 ];
 

@@ -3,67 +3,8 @@ import api from '../lib/api.js';
 import Spinner from '../components/ui/Spinner.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import ConfirmDialog from '../components/ui/ConfirmDialog.jsx';
+import DocTypeForm, { TRACKING_LABELS } from '../components/documents/DocTypeForm.jsx';
 import toast from 'react-hot-toast';
-
-function DocTypeForm({ initial, onSave, onClose }) {
-  const [form, setForm] = useState({
-    name: '', description: '', warning_days: 30, is_required: true,
-    ...initial,
-  });
-  const [saving, setSaving] = useState(false);
-
-  function set(field) {
-    return (e) => setForm((f) => ({
-      ...f,
-      [field]: e.target.type === 'checkbox' ? e.target.checked
-             : e.target.type === 'number' ? Number(e.target.value)
-             : e.target.value,
-    }));
-  }
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!form.name.trim()) return toast.error('Name is required');
-    setSaving(true);
-    try {
-      await onSave(form);
-      onClose();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Save failed');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <div className="form-group" style={{ marginBottom: '1rem' }}>
-        <label className="form-label">Name *</label>
-        <input className="form-input" value={form.name} onChange={set('name')} required />
-      </div>
-      <div className="form-group" style={{ marginBottom: '1rem' }}>
-        <label className="form-label">Description</label>
-        <textarea className="form-textarea" rows={2} value={form.description || ''} onChange={set('description')} />
-      </div>
-      <div className="form-grid" style={{ marginBottom: '1rem' }}>
-        <div className="form-group">
-          <label className="form-label">Warning Days (before expiry)</label>
-          <input type="number" className="form-input" min={1} max={365} value={form.warning_days} onChange={set('warning_days')} />
-        </div>
-        <div className="form-group" style={{ justifyContent: 'flex-end' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '1.5rem' }}>
-            <input type="checkbox" id="is_req" checked={!!form.is_required} onChange={set('is_required')} />
-            <label htmlFor="is_req" className="form-label" style={{ marginBottom: 0 }}>Required</label>
-          </div>
-        </div>
-      </div>
-      <div className="modal-footer" style={{ padding: 0, borderTop: 'none' }}>
-        <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
-        <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
-      </div>
-    </form>
-  );
-}
 
 export default function DocumentTypesPage() {
   const [types, setTypes] = useState([]);
@@ -124,7 +65,7 @@ export default function DocumentTypesPage() {
               <tr>
                 <th>Name</th>
                 <th>Description</th>
-                <th>Warning Days</th>
+                <th>Tracking</th>
                 <th>Required</th>
                 <th>Actions</th>
               </tr>
@@ -136,7 +77,7 @@ export default function DocumentTypesPage() {
                 <tr key={dt.id}>
                   <td style={{ fontWeight: 600 }}>{dt.name}</td>
                   <td className="text-secondary">{dt.description || '—'}</td>
-                  <td>{dt.warning_days} days</td>
+                  <td>{TRACKING_LABELS[dt.tracking_type] || 'Expires'}</td>
                   <td>{dt.is_required ? 'Yes' : 'No'}</td>
                   <td style={{ display: 'flex', gap: '0.375rem' }}>
                     <button className="btn btn-secondary btn-sm" onClick={() => setEditTarget(dt)}>Edit</button>
@@ -164,7 +105,7 @@ export default function DocumentTypesPage() {
       {deleteTarget && (
         <ConfirmDialog
           title="Delete Document Type"
-          message={`Delete "${deleteTarget.name}"? This will fail if any person records reference this type.`}
+          message={`Delete "${deleteTarget.name}"? It will be removed from all default lists and person checklists. This will fail if any person has a saved record for it.`}
           onConfirm={handleDelete}
           onCancel={() => setDeleteTarget(null)}
           loading={deleting}

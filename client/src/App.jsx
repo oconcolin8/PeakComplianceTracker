@@ -8,6 +8,7 @@ import DashboardPage from './pages/DashboardPage.jsx';
 import PeoplePage from './pages/PeoplePage.jsx';
 import PersonDetailPage from './pages/PersonDetailPage.jsx';
 import DocumentTypesPage from './pages/DocumentTypesPage.jsx';
+import DocumentTemplatesPage from './pages/DocumentTemplatesPage.jsx';
 import UsersPage from './pages/UsersPage.jsx';
 
 export default function App() {
@@ -34,6 +35,9 @@ export default function App() {
         <Route path="/people/:id" element={<PersonDetailPage />} />
         <Route path="/document-types" element={
           <ProtectedRoute adminOnly><DocumentTypesPage /></ProtectedRoute>
+        } />
+        <Route path="/document-templates" element={
+          <ProtectedRoute adminOnly><DocumentTemplatesPage /></ProtectedRoute>
         } />
         <Route path="/users" element={
           <ProtectedRoute adminOnly><UsersPage /></ProtectedRoute>

@@ -1,6 +1,7 @@
 const supabase = require('../config/supabase');
 const asyncHandler = require('../utils/asyncHandler');
-const { annotateDocuments, getPersonOverallStatus } = require('../services/expirationService');
+const { getPersonOverallStatus } = require('../services/expirationService');
+const { getChecklists, addToChecklist, getTemplateIds } = require('../services/checklistService');
 
 const list = asyncHandler(async (req, res) => {
   const { type, status, search } = req.query;
@@ -17,53 +18,34 @@ const list = asyncHandler(async (req, res) => {
   const { data: people, error } = await query;
   if (error) throw error;
 
-  // Fetch required doc type IDs
-  const { data: docTypes } = await supabase
-    .from('document_types')
-    .select('id, warning_days, is_required');
-  const requiredTypeIds = (docTypes || []).filter((d) => d.is_required).map((d) => d.id);
-  const warningDaysMap = Object.fromEntries((docTypes || []).map((d) => [d.id, d.warning_days]));
-
-  // Fetch all docs for these people
-  const peopleIds = people.map((p) => p.id);
-  let docs = [];
-  if (peopleIds.length > 0) {
-    const { data: docsData } = await supabase
-      .from('person_documents')
-      .select('person_id, document_type_id, expiry_date')
-      .in('person_id', peopleIds);
-    docs = docsData || [];
-  }
-
-  // Compute overall status per person
-  const docsByPerson = {};
-  for (const doc of docs) {
-    if (!docsByPerson[doc.person_id]) docsByPerson[doc.person_id] = [];
-    docsByPerson[doc.person_id].push({
-      ...doc,
-      computed_status: require('../services/expirationService').getDocStatus(
-        doc.expiry_date,
-        warningDaysMap[doc.document_type_id] ?? 30
-      ),
-    });
-  }
+  const checklists = await getChecklists(people.map((p) => p.id));
 
   const result = people.map((p) => ({
     ...p,
-    overall_status: getPersonOverallStatus(docsByPerson[p.id] || [], requiredTypeIds),
+    overall_status: getPersonOverallStatus(checklists[p.id]),
   }));
 
   res.json(result);
 });
 
 const create = asyncHandler(async (req, res) => {
-  const { full_name, email, phone, person_type, is_active, notes } = req.body;
+  const { full_name, email, phone, person_type, is_active, notes, document_type_ids } = req.body;
   const { data, error } = await supabase
     .from('people')
     .insert({ full_name, email: email || null, phone: phone || null, person_type, is_active: is_active ?? true, notes: notes || null })
     .select()
     .single();
   if (error) throw error;
+
+  // Seed the checklist: the list chosen on the form, or the person type's template
+  try {
+    const ids = Array.isArray(document_type_ids) ? document_type_ids : await getTemplateIds(person_type);
+    await addToChecklist(data.id, ids);
+  } catch (err) {
+    await supabase.from('people').delete().eq('id', data.id);
+    throw err;
+  }
+
   res.status(201).json(data);
 });
 
@@ -77,31 +59,8 @@ const get = asyncHandler(async (req, res) => {
     .single();
   if (error || !person) return res.status(404).json({ error: 'Person not found' });
 
-  // Fetch all document types
-  const { data: allDocTypes } = await supabase
-    .from('document_types')
-    .select('*')
-    .order('name');
-
-  // Fetch this person's documents
-  const { data: personDocs } = await supabase
-    .from('person_documents')
-    .select('*, document_types(name, warning_days, is_required), uploaded_by_name')
-    .eq('person_id', id);
-
-  const annotated = annotateDocuments(personDocs || []);
-
-  // Build a full checklist: one row per doc type
-  const docMap = Object.fromEntries(annotated.map((d) => [d.document_type_id, d]));
-  const checklist = (allDocTypes || []).map((dt) => ({
-    document_type: dt,
-    record: docMap[dt.id] || null,
-    computed_status: docMap[dt.id]
-      ? docMap[dt.id].computed_status
-      : 'missing',
-  }));
-
-  res.json({ ...person, checklist });
+  const checklists = await getChecklists([id]);
+  res.json({ ...person, checklist: checklists[id] });
 });
 
 const update = asyncHandler(async (req, res) => {
@@ -127,4 +86,28 @@ const remove = asyncHandler(async (req, res) => {
   res.json({ message: 'Person deactivated' });
 });
 
-module.exports = { list, create, get, update, remove };
+const addChecklistItems = asyncHandler(async (req, res) => {
+  await addToChecklist(req.params.id, req.body.document_type_ids);
+  res.status(201).json({ message: 'Added to checklist' });
+});
+
+// Removing a document from a person's list also deletes their record for it.
+const removeChecklistItem = asyncHandler(async (req, res) => {
+  const { id, documentTypeId } = req.params;
+  const { error: docErr } = await supabase
+    .from('person_documents')
+    .delete()
+    .eq('person_id', id)
+    .eq('document_type_id', documentTypeId);
+  if (docErr) throw docErr;
+
+  const { error } = await supabase
+    .from('person_checklist')
+    .delete()
+    .eq('person_id', id)
+    .eq('document_type_id', documentTypeId);
+  if (error) throw error;
+  res.json({ message: 'Removed from checklist' });
+});
+
+module.exports = { list, create, get, update, remove, addChecklistItems, removeChecklistItem };

@@ -6,6 +6,9 @@ import api from '../lib/api.js';
 import Spinner from '../components/ui/Spinner.jsx';
 import StatusBadge from '../components/ui/StatusBadge.jsx';
 import Modal from '../components/ui/Modal.jsx';
+import ConfirmDialog from '../components/ui/ConfirmDialog.jsx';
+import DocumentRecordForm from '../components/documents/DocumentRecordForm.jsx';
+import DocumentPicker from '../components/documents/DocumentPicker.jsx';
 import toast from 'react-hot-toast';
 
 const ROW_CLASS = {
@@ -18,30 +21,30 @@ function fmt(dateStr) {
   try { return format(parseISO(dateStr), 'MMM d, yyyy'); } catch { return dateStr; }
 }
 
-function DocumentRowEditor({ item, personId, onSaved, onClose }) {
-  const { document_type, record } = item;
-  const [form, setForm] = useState({
-    document_type_id: document_type.id,
-    issue_date: record?.issue_date ? record.issue_date.slice(0, 10) : '',
-    expiry_date: record?.expiry_date ? record.expiry_date.slice(0, 10) : '',
-    notes: record?.notes || '',
-  });
+function daysLabel(days) {
+  if (days === null || days === undefined) return null;
+  if (days < 0) return `${-days} day${days === -1 ? '' : 's'} ago`;
+  if (days === 0) return 'today';
+  return `in ${days} day${days === 1 ? '' : 's'}`;
+}
+
+function AddDocumentsForm({ personId, checklist, onSaved, onClose }) {
+  const [docTypes, setDocTypes] = useState(null);
+  const [selected, setSelected] = useState([]);
   const [saving, setSaving] = useState(false);
 
-  function set(field) {
-    return (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
-  }
+  useEffect(() => {
+    const onList = new Set(checklist.map((c) => c.document_type.id));
+    api.get('/document-types')
+      .then((r) => setDocTypes(r.data.filter((dt) => !onList.has(dt.id))))
+      .catch(() => toast.error('Failed to load document types'));
+  }, [checklist]);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  async function handleSave() {
     setSaving(true);
     try {
-      if (record) {
-        await api.put(`/people/${personId}/documents/${record.id}`, form);
-      } else {
-        await api.post(`/people/${personId}/documents`, form);
-      }
-      toast.success('Document record saved');
+      await api.post(`/people/${personId}/checklist`, { document_type_ids: selected });
+      toast.success(`${selected.length} document${selected.length === 1 ? '' : 's'} added`);
       onSaved();
       onClose();
     } catch (err) {
@@ -51,32 +54,24 @@ function DocumentRowEditor({ item, personId, onSaved, onClose }) {
     }
   }
 
+  if (!docTypes) return <Spinner />;
+
   return (
-    <form onSubmit={handleSubmit}>
-      <p style={{ marginBottom: '1rem', color: 'var(--color-text-secondary)', fontSize: 13 }}>
-        {document_type.description || `Update the record for "${document_type.name}".`}
-      </p>
-      <div className="form-grid" style={{ marginBottom: '1rem' }}>
-        <div className="form-group">
-          <label className="form-label">Date Received</label>
-          <input type="date" className="form-input" value={form.issue_date} onChange={set('issue_date')} />
-        </div>
-        {document_type.has_expiration !== false && (
-          <div className="form-group">
-            <label className="form-label">Expiration Date</label>
-            <input type="date" className="form-input" value={form.expiry_date} onChange={set('expiry_date')} />
-          </div>
-        )}
-      </div>
-      <div className="form-group" style={{ marginBottom: '1rem' }}>
-        <label className="form-label">Notes</label>
-        <textarea className="form-textarea" rows={2} value={form.notes} onChange={set('notes')} />
-      </div>
-      <div className="modal-footer" style={{ padding: 0, borderTop: 'none' }}>
+    <div>
+      <DocumentPicker
+        docTypes={docTypes}
+        selected={selected}
+        onChange={setSelected}
+        onTypeCreated={(dt) => setDocTypes((list) => [...list, dt])}
+        emptyMessage="Every document type is already on this person's list."
+      />
+      <div className="modal-footer" style={{ padding: 0, borderTop: 'none', marginTop: '1.25rem' }}>
         <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
-        <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+        <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving || selected.length === 0}>
+          {saving ? 'Adding…' : 'Add to List'}
+        </button>
       </div>
-    </form>
+    </div>
   );
 }
 
@@ -149,21 +144,39 @@ export default function PersonDetailPage() {
   const [loading, setLoading] = useState(true);
   const [editDoc, setEditDoc] = useState(null);
   const [editPerson, setEditPerson] = useState(false);
+  const [showAddDocs, setShowAddDocs] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState(null);
+  const [removing, setRemoving] = useState(false);
 
-  const fetchPerson = useCallback(() => {
-    setLoading(true);
+  // Initial load shows the spinner; refreshes after edits keep the page in place
+  const fetchPerson = useCallback((initial = false) => {
+    if (initial) setLoading(true);
     api.get(`/people/${id}`)
       .then((r) => setPerson(r.data))
       .catch(() => toast.error('Failed to load person'))
       .finally(() => setLoading(false));
   }, [id]);
 
-  useEffect(() => { fetchPerson(); }, [fetchPerson]);
+  useEffect(() => { fetchPerson(true); }, [fetchPerson]);
 
   async function handleSavePerson(form) {
     const { data } = await api.put(`/people/${id}`, form);
     setPerson((prev) => ({ ...prev, ...data }));
     toast.success('Person updated');
+  }
+
+  async function handleRemoveDoc() {
+    setRemoving(true);
+    try {
+      await api.delete(`/people/${id}/checklist/${removeTarget.document_type.id}`);
+      toast.success(`"${removeTarget.document_type.name}" removed`);
+      setRemoveTarget(null);
+      fetchPerson();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Remove failed');
+    } finally {
+      setRemoving(false);
+    }
   }
 
   if (loading) return <Spinner />;
@@ -197,7 +210,12 @@ export default function PersonDetailPage() {
         </div>
       </div>
 
-      <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: '0.75rem' }}>Document Checklist</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+        <h2 style={{ fontSize: 15, fontWeight: 700 }}>Document Checklist</h2>
+        {isAdmin && (
+          <button className="btn btn-secondary btn-sm" onClick={() => setShowAddDocs(true)}>+ Add Documents</button>
+        )}
+      </div>
 
       <div className="table-wrapper">
         <table>
@@ -213,28 +231,51 @@ export default function PersonDetailPage() {
             </tr>
           </thead>
           <tbody>
+            {(person.checklist || []).length === 0 && (
+              <tr>
+                <td colSpan={7} className="empty-state">
+                  No documents are tracked for this person yet.{isAdmin && ' Use "+ Add Documents" to build their list.'}
+                </td>
+              </tr>
+            )}
             {(person.checklist || []).map((item) => (
               <tr key={item.document_type.id} className={ROW_CLASS[item.computed_status] || ''}>
                 <td style={{ fontWeight: 600 }}>
                   {item.document_type.name}
-                  {item.document_type.is_required && (
-                    <span style={{ color: 'var(--status-expired)', marginLeft: 4, fontSize: 10 }}>*</span>
-                  )}
+                  {item.document_type.is_required && <span className="required-mark">*</span>}
                 </td>
                 <td><StatusBadge status={item.computed_status} /></td>
                 <td className="text-secondary">{fmt(item.record?.issue_date)}</td>
-                <td className="text-secondary">{fmt(item.record?.expiry_date)}</td>
+                <td className="text-secondary">
+                  {item.document_type.tracking_type === 'present_absent' ? (
+                    <span className="text-muted text-sm">On file only</span>
+                  ) : (
+                    <>
+                      {fmt(item.record?.expiry_date)}
+                      {daysLabel(item.days_until_expiry) && (
+                        <div className="text-muted text-sm">{daysLabel(item.days_until_expiry)}</div>
+                      )}
+                    </>
+                  )}
+                </td>
                 <td className="text-secondary" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {item.record?.notes || '—'}
                 </td>
                 <td className="text-muted text-sm">{item.record?.uploaded_by_name || '—'}</td>
                 <td>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => setEditDoc(item)}
-                  >
-                    {item.record ? 'Edit' : 'Add'}
-                  </button>
+                  <div style={{ display: 'flex', gap: '0.375rem' }}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setEditDoc(item)}
+                    >
+                      {item.record ? 'Edit' : 'Add'}
+                    </button>
+                    {isAdmin && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => setRemoveTarget(item)} title="Remove from this person's list">
+                        Remove
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -244,13 +285,38 @@ export default function PersonDetailPage() {
 
       {editDoc && (
         <Modal title={`${editDoc.record ? 'Edit' : 'Add'}: ${editDoc.document_type.name}`} onClose={() => setEditDoc(null)}>
-          <DocumentRowEditor
+          <DocumentRecordForm
             item={editDoc}
             personId={id}
-            onSaved={fetchPerson}
+            onSaved={() => fetchPerson()}
             onClose={() => setEditDoc(null)}
           />
         </Modal>
+      )}
+
+      {showAddDocs && (
+        <Modal title={`Add Documents — ${person.full_name}`} onClose={() => setShowAddDocs(false)} wide>
+          <AddDocumentsForm
+            personId={id}
+            checklist={person.checklist || []}
+            onSaved={() => fetchPerson()}
+            onClose={() => setShowAddDocs(false)}
+          />
+        </Modal>
+      )}
+
+      {removeTarget && (
+        <ConfirmDialog
+          title="Remove Document"
+          message={
+            removeTarget.record
+              ? `Remove "${removeTarget.document_type.name}" from ${person.full_name}'s list? Their saved record for it will be deleted.`
+              : `Remove "${removeTarget.document_type.name}" from ${person.full_name}'s list?`
+          }
+          onConfirm={handleRemoveDoc}
+          onCancel={() => setRemoveTarget(null)}
+          loading={removing}
+        />
       )}
 
       {editPerson && (

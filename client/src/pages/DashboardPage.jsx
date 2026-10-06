@@ -47,7 +47,7 @@ export default function DashboardPage() {
           onClick={() => navigate('/people?filter=expired')}
         />
         <SummaryCard
-          label="Expiring Within 30 Days"
+          label={`Expiring Within ${summary?.expiring_soon_days ?? 30} Days`}
           value={summary?.expiring_soon}
           type="expiring"
           onClick={() => navigate('/people?filter=expiring_soon')}

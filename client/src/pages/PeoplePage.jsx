@@ -6,17 +6,34 @@ import Spinner from '../components/ui/Spinner.jsx';
 import StatusBadge from '../components/ui/StatusBadge.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import ConfirmDialog from '../components/ui/ConfirmDialog.jsx';
+import DocumentPicker from '../components/documents/DocumentPicker.jsx';
 import toast from 'react-hot-toast';
 
 const TYPE_LABELS = { client: 'Client', employee: 'Employee', contractor: 'Contractor', all: 'All People' };
 
-function PersonForm({ initial, onSave, onClose }) {
+function PersonForm({ initialType, onSave, onClose }) {
   const [form, setForm] = useState({
-    full_name: '', email: '', phone: '', person_type: 'client', is_active: true, notes: '',
-    ...initial,
+    full_name: '', email: '', phone: '', person_type: initialType || 'client', is_active: true, notes: '',
   });
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});
+  const [docTypes, setDocTypes] = useState([]);
+  const [templates, setTemplates] = useState(null);
+  const [selectedDocs, setSelectedDocs] = useState([]);
+
+  useEffect(() => {
+    Promise.all([api.get('/document-types'), api.get('/document-templates')])
+      .then(([dt, tpl]) => {
+        setDocTypes(dt.data);
+        setTemplates(tpl.data);
+      })
+      .catch(() => toast.error('Failed to load default documents'));
+  }, []);
+
+  // Picking a type (re)loads that type's default documents
+  useEffect(() => {
+    if (templates) setSelectedDocs(templates[form.person_type] || []);
+  }, [templates, form.person_type]);
 
   function set(field) {
     return (e) => setForm((f) => ({ ...f, [field]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
@@ -30,7 +47,7 @@ function PersonForm({ initial, onSave, onClose }) {
     if (Object.keys(errs).length) return setErrors(errs);
     setSaving(true);
     try {
-      await onSave(form);
+      await onSave({ ...form, document_type_ids: selectedDocs });
       onClose();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Save failed');
@@ -40,44 +57,62 @@ function PersonForm({ initial, onSave, onClose }) {
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <div className="form-grid" style={{ marginBottom: '1rem' }}>
-        <div className="form-group">
-          <label className="form-label">Full Name *</label>
-          <input className="form-input" value={form.full_name} onChange={set('full_name')} />
-          {errors.full_name && <span className="form-error">{errors.full_name}</span>}
+    <div>
+      <form id="person-form" onSubmit={handleSubmit}>
+        <div className="form-grid" style={{ marginBottom: '1rem' }}>
+          <div className="form-group">
+            <label className="form-label">Full Name *</label>
+            <input className="form-input" value={form.full_name} onChange={set('full_name')} />
+            {errors.full_name && <span className="form-error">{errors.full_name}</span>}
+          </div>
+          <div className="form-group">
+            <label className="form-label">Type *</label>
+            <select className="form-select" value={form.person_type} onChange={set('person_type')}>
+              <option value="client">Client</option>
+              <option value="employee">Employee</option>
+              <option value="contractor">Contractor</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Email</label>
+            <input className="form-input" type="email" value={form.email} onChange={set('email')} />
+            {errors.email && <span className="form-error">{errors.email}</span>}
+          </div>
+          <div className="form-group">
+            <label className="form-label">Phone</label>
+            <input className="form-input" value={form.phone} onChange={set('phone')} />
+          </div>
         </div>
-        <div className="form-group">
-          <label className="form-label">Type *</label>
-          <select className="form-select" value={form.person_type} onChange={set('person_type')}>
-            <option value="client">Client</option>
-            <option value="employee">Employee</option>
-            <option value="contractor">Contractor</option>
-          </select>
+        <div className="form-group" style={{ marginBottom: '1rem' }}>
+          <label className="form-label">Notes</label>
+          <textarea className="form-textarea" rows={2} value={form.notes} onChange={set('notes')} />
         </div>
-        <div className="form-group">
-          <label className="form-label">Email</label>
-          <input className="form-input" type="email" value={form.email || ''} onChange={set('email')} />
-          {errors.email && <span className="form-error">{errors.email}</span>}
+        <div className="form-group" style={{ flexDirection: 'row', alignItems: 'center', gap: '0.5rem' }}>
+          <input type="checkbox" id="is_active" checked={!!form.is_active} onChange={set('is_active')} />
+          <label htmlFor="is_active" className="form-label" style={{ marginBottom: 0 }}>Active</label>
         </div>
-        <div className="form-group">
-          <label className="form-label">Phone</label>
-          <input className="form-input" value={form.phone || ''} onChange={set('phone')} />
-        </div>
-      </div>
-      <div className="form-group" style={{ marginBottom: '1rem' }}>
-        <label className="form-label">Notes</label>
-        <textarea className="form-textarea" rows={3} value={form.notes || ''} onChange={set('notes')} />
-      </div>
-      <div className="form-group" style={{ flexDirection: 'row', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-        <input type="checkbox" id="is_active" checked={!!form.is_active} onChange={set('is_active')} />
-        <label htmlFor="is_active" className="form-label" style={{ marginBottom: 0 }}>Active</label>
-      </div>
-      <div className="modal-footer" style={{ padding: 0, borderTop: 'none', marginTop: '0.5rem' }}>
+      </form>
+
+      <div className="section-label">Documents to track</div>
+      <p className="text-secondary" style={{ fontSize: 13, marginBottom: '0.625rem' }}>
+        Pre-filled with the default {TYPE_LABELS[form.person_type].toLowerCase()} documents. Untick any that don't apply or add others.
+      </p>
+      {templates ? (
+        <DocumentPicker
+          docTypes={docTypes}
+          selected={selectedDocs}
+          onChange={setSelectedDocs}
+          onTypeCreated={(dt) => setDocTypes((list) => [...list, dt].sort((a, b) => a.name.localeCompare(b.name)))}
+        />
+      ) : <Spinner />}
+
+      <div className="modal-footer" style={{ padding: 0, borderTop: 'none', marginTop: '1.25rem' }}>
         <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
-        <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+        <button type="submit" form="person-form" className="btn btn-primary" disabled={saving || !templates}>
+          {saving ? 'Saving…' : 'Create Person'}
+        </button>
       </div>
-    </form>
+    </div>
   );
 }
 
@@ -112,10 +147,11 @@ export default function PeoplePage({ type }) {
     ? people.filter((p) => p.overall_status === statusFilter)
     : people;
 
+  // After creating, go straight to the person's page to fill in their documents
   async function handleAdd(form) {
     const { data } = await api.post('/people', form);
     toast.success(`${data.full_name} added`);
-    fetchPeople();
+    navigate(`/people/${data.id}`);
   }
 
   async function handleDelete() {
@@ -213,8 +249,12 @@ export default function PeoplePage({ type }) {
       )}
 
       {showAdd && (
-        <Modal title="Add Person" onClose={() => setShowAdd(false)}>
-          <PersonForm onSave={handleAdd} onClose={() => setShowAdd(false)} />
+        <Modal title="Add Person" onClose={() => setShowAdd(false)} wide>
+          <PersonForm
+            initialType={type !== 'all' ? type : undefined}
+            onSave={handleAdd}
+            onClose={() => setShowAdd(false)}
+          />
         </Modal>
       )}
 

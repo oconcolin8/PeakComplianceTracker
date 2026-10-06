@@ -26,13 +26,35 @@ CREATE TABLE people (
 -- ============================================================
 -- DOCUMENT TYPES
 -- ============================================================
+-- tracking_type: 'expiration' (has an expiry date) or 'present_absent' (just on file / not)
+-- "Expiring soon" is one app-wide threshold (server env EXPIRING_SOON_DAYS), not per type.
 CREATE TABLE document_types (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name         TEXT NOT NULL UNIQUE,
-  description  TEXT,
-  warning_days INTEGER NOT NULL DEFAULT 30,
-  is_required  BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name          TEXT NOT NULL UNIQUE,
+  description   TEXT,
+  tracking_type TEXT NOT NULL DEFAULT 'expiration' CHECK (tracking_type IN ('expiration', 'present_absent')),
+  is_required   BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
+-- DOCUMENT TEMPLATES (default document types per person type)
+-- ============================================================
+CREATE TABLE document_type_defaults (
+  person_type      TEXT NOT NULL CHECK (person_type IN ('client', 'employee', 'contractor')),
+  document_type_id UUID NOT NULL REFERENCES document_types(id) ON DELETE CASCADE,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (person_type, document_type_id)
+);
+
+-- ============================================================
+-- PERSON CHECKLIST (copied from the template on create, editable per person)
+-- ============================================================
+CREATE TABLE person_checklist (
+  person_id        UUID NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+  document_type_id UUID NOT NULL REFERENCES document_types(id) ON DELETE CASCADE,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (person_id, document_type_id)
 );
 
 -- ============================================================
@@ -91,12 +113,16 @@ ALTER TABLE people           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE document_types   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE person_documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app_users        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE document_type_defaults ENABLE ROW LEVEL SECURITY;
+ALTER TABLE person_checklist       ENABLE ROW LEVEL SECURITY;
 
 -- Authenticated users can read everything
 CREATE POLICY "auth read people"           ON people           FOR SELECT TO authenticated USING (true);
 CREATE POLICY "auth read document_types"   ON document_types   FOR SELECT TO authenticated USING (true);
 CREATE POLICY "auth read person_documents" ON person_documents FOR SELECT TO authenticated USING (true);
 CREATE POLICY "auth read app_users"        ON app_users        FOR SELECT TO authenticated USING (true);
+CREATE POLICY "auth read document_type_defaults" ON document_type_defaults FOR SELECT TO authenticated USING (true);
+CREATE POLICY "auth read person_checklist"       ON person_checklist       FOR SELECT TO authenticated USING (true);
 
 -- Only admins can mutate (this is a belt-and-suspenders check; main enforcement is in Express middleware)
 CREATE POLICY "admin mutate people" ON people FOR ALL TO authenticated
@@ -111,17 +137,23 @@ CREATE POLICY "admin mutate person_documents" ON person_documents FOR ALL TO aut
 CREATE POLICY "admin mutate app_users" ON app_users FOR ALL TO authenticated
   USING (EXISTS (SELECT 1 FROM app_users WHERE id = auth.uid() AND role = 'admin'));
 
+CREATE POLICY "admin mutate document_type_defaults" ON document_type_defaults FOR ALL TO authenticated
+  USING (EXISTS (SELECT 1 FROM app_users WHERE id = auth.uid() AND role = 'admin'));
+
+CREATE POLICY "admin mutate person_checklist" ON person_checklist FOR ALL TO authenticated
+  USING (EXISTS (SELECT 1 FROM app_users WHERE id = auth.uid() AND role = 'admin'));
+
 -- ============================================================
--- SEED: Default document types
+-- SEED: Example document types (placeholder — templates are set up in the app)
 -- ============================================================
-INSERT INTO document_types (name, description, warning_days, is_required) VALUES
-  ('Driver License',          'State-issued driver license',              30, TRUE),
-  ('Background Check',        'Criminal background screening',            90, TRUE),
-  ('OSHA Safety Training',    'OSHA 10 or OSHA 30 certification',         30, TRUE),
-  ('Health Certificate',      'Annual medical clearance from physician',  60, TRUE),
-  ('Insurance Certificate',   'Proof of liability insurance',             45, TRUE),
-  ('I-9 Employment Eligibility', 'Form I-9 verification',                 0, TRUE),
-  ('W-9 / W-4',               'Tax withholding form on file',              0, FALSE);
+INSERT INTO document_types (name, description, tracking_type, is_required) VALUES
+  ('Driver License',          'State-issued driver license',              'expiration',     TRUE),
+  ('Background Check',        'Criminal background screening',            'expiration',     TRUE),
+  ('OSHA Safety Training',    'OSHA 10 or OSHA 30 certification',         'expiration',     TRUE),
+  ('Health Certificate',      'Annual medical clearance from physician',  'expiration',     TRUE),
+  ('Insurance Certificate',   'Proof of liability insurance',             'expiration',     TRUE),
+  ('I-9 Employment Eligibility', 'Form I-9 verification',                 'present_absent', TRUE),
+  ('W-9 / W-4',               'Tax withholding form on file',             'present_absent', FALSE);
 
 -- ============================================================
 -- FIRST ADMIN USER SETUP (run after creating user in Auth UI)

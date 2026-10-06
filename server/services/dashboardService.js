@@ -1,52 +1,26 @@
 const supabase = require('../config/supabase');
-const { getDocStatus, getPersonOverallStatus } = require('./expirationService');
+const { EXPIRING_SOON_DAYS, getPersonOverallStatus } = require('./expirationService');
+const { getChecklists } = require('./checklistService');
 
 async function getSummary() {
-  // Fetch all people
   const { data: people, error: peopleErr } = await supabase
     .from('people')
-    .select('id, is_active');
+    .select('id')
+    .eq('is_active', true);
   if (peopleErr) throw peopleErr;
 
-  const activePeople = people.filter((p) => p.is_active);
-  const total_people = activePeople.length;
-
-  // Fetch all required document types
-  const { data: docTypes, error: dtErr } = await supabase
-    .from('document_types')
-    .select('id, warning_days, is_required');
-  if (dtErr) throw dtErr;
-
-  const requiredTypeIds = docTypes.filter((d) => d.is_required).map((d) => d.id);
-  const warningDaysMap = Object.fromEntries(docTypes.map((d) => [d.id, d.warning_days]));
-
-  // Fetch all person_documents for active people
-  const activePeopleIds = activePeople.map((p) => p.id);
-  const { data: docs, error: docsErr } = await supabase
-    .from('person_documents')
-    .select('person_id, document_type_id, expiry_date')
-    .in('person_id', activePeopleIds.length > 0 ? activePeopleIds : ['00000000-0000-0000-0000-000000000000']);
-  if (docsErr) throw docsErr;
-
-  // Group docs by person
-  const docsByPerson = {};
-  for (const doc of docs) {
-    if (!docsByPerson[doc.person_id]) docsByPerson[doc.person_id] = [];
-    const status = getDocStatus(doc.expiry_date, warningDaysMap[doc.document_type_id] ?? 30);
-    docsByPerson[doc.person_id].push({ ...doc, computed_status: status });
-  }
+  const checklists = await getChecklists(people.map((p) => p.id));
 
   let expired = 0, expiring_soon = 0, missing = 0;
 
-  for (const person of activePeople) {
-    const personDocs = docsByPerson[person.id] || [];
-    const overall = getPersonOverallStatus(personDocs, requiredTypeIds);
+  for (const person of people) {
+    const overall = getPersonOverallStatus(checklists[person.id]);
     if (overall === 'expired') expired++;
     else if (overall === 'expiring_soon') expiring_soon++;
     else if (overall === 'missing') missing++;
   }
 
-  return { total_people, expired, expiring_soon, missing };
+  return { total_people: people.length, expired, expiring_soon, missing, expiring_soon_days: EXPIRING_SOON_DAYS };
 }
 
 module.exports = { getSummary };

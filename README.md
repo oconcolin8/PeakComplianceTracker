@@ -10,6 +10,7 @@ A full-stack web app for tracking documents, credentials, and certifications for
 
 1. Go to [supabase.com](https://supabase.com) and create a free project.
 2. In **Database → SQL Editor**, run the full contents of `supabase/schema.sql`.
+   - **Upgrading an existing database?** Run the files in `supabase/migrations/` in order instead.
 3. In **Authentication → Providers**, ensure **Email** is enabled.
 4. Collect these values from **Project Settings → API**:
    - Project URL (e.g. `https://xxxx.supabase.co`)
@@ -37,6 +38,7 @@ PORT=3001
 CLIENT_URL=http://localhost:5173
 SUPABASE_URL=https://your-project-id.supabase.co
 SUPABASE_SERVICE_KEY=your-service-role-key
+EXPIRING_SOON_DAYS=30   # optional; when a document is flagged "expiring soon"
 ```
 
 **Client** — copy `client/.env.example` to `client/.env`:

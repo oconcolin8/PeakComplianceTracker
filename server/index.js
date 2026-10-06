@@ -8,6 +8,7 @@ const authRoutes = require('./routes/auth');
 const peopleRoutes = require('./routes/people');
 const documentRoutes = require('./routes/documents');
 const documentTypeRoutes = require('./routes/documentTypes');
+const documentTemplateRoutes = require('./routes/documentTemplates');
 const usersRoutes = require('./routes/users');
 const dashboardRoutes = require('./routes/dashboard');
 
@@ -27,6 +28,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/people', peopleRoutes);
 app.use('/api/people', documentRoutes);
 app.use('/api/document-types', documentTypeRoutes);
+app.use('/api/document-templates', documentTemplateRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
